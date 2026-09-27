@@ -1,0 +1,14 @@
+# Build output (target/ covers every Maven module)
+target/
+out/
+*.class
+*.log
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Secrets (commit .env.example with placeholder values instead)
+.env
+.env.*
+!.env.example
