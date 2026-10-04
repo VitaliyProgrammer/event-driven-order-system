@@ -20,6 +20,7 @@
     <description>Event-driven order processing backend: Spring Boot, Kafka, Transactional Outbox, Saga</description>
 
     <modules>
+        <module>common</module>
         <module>order-service</module>
     </modules>
 
@@ -33,6 +34,11 @@
     <!-- Versions Spring Boot does not manage. Modules declare what they use without a version. -->
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.orderline</groupId>
+                <artifactId>common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.mapstruct</groupId>
                 <artifactId>mapstruct</artifactId>
