@@ -6,7 +6,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,4 +23,7 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     Page<Order> findByCustomerId(UUID customerId, Pageable pageable);
 
     Page<Order> findByCustomerIdAndStatus(UUID customerId, OrderStatus status, Pageable pageable);
+
+    @Query("select o.id from Order o where o.status = :status and o.updatedAt < :before")
+    List<UUID> findStaleIds(OrderStatus status, Instant before);
 }
