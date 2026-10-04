@@ -18,6 +18,19 @@ spring:
     web:
       pageable:
         max-page-size: 100
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: order-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
+      concurrency: 3
 
 server:
   port: 8081
@@ -27,3 +40,16 @@ management:
     web:
       exposure:
         include: health,info
+
+orderline:
+  jwt:
+    secret: ${JWT_SECRET:local-development-secret-change-me-0123456789}
+    ttl: 2h
+  administrator:
+    email: ${ADMINISTRATOR_EMAIL:admin@orderline.local}
+    password: ${ADMINISTRATOR_PASSWORD:administrator}
+  outbox:
+    publish-interval: 1s
+  orders:
+    payment-timeout: ${PAYMENT_TIMEOUT:15m}
+    timeout-check-interval: 30s
