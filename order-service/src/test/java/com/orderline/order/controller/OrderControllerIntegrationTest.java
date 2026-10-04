@@ -1,6 +1,8 @@
 package com.orderline.order.controller;
 
 import com.jayway.jsonpath.JsonPath;
+import com.orderline.common.event.EventTypes;
+import com.orderline.order.repository.OutboxEventRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -9,21 +11,21 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Runs the whole stack (HTTP -> service -> JPA -> Flyway schema) against a real PostgreSQL in Docker.
- */
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers
@@ -33,81 +35,115 @@ class OrderControllerIntegrationTest {
     @ServiceConnection
     static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
 
+    @Container
+    @ServiceConnection
+    static KafkaContainer kafka = new KafkaContainer("apache/kafka-native:4.1.0");
+
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
     @Test
-    void createsOrderAndReturnsItById() throws Exception {
+    void createsOrderAndWritesOutboxEvent() throws Exception {
         UUID customerId = UUID.randomUUID();
 
         String orderId = createOrder(customerId);
 
-        mockMvc.perform(get("/api/orders/{id}", orderId))
+        mockMvc.perform(get("/orders/{id}", orderId).with(user(customerId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.customerId").value(customerId.toString()))
                 .andExpect(jsonPath("$.status").value("CREATED"))
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].quantity").value(2));
+
+        assertThat(outboxEventRepository.findAll())
+                .anySatisfy(event -> {
+                    assertThat(event.getAggregateId()).hasToString(orderId);
+                    assertThat(event.getEventType()).isEqualTo(EventTypes.ORDER_CREATED);
+                });
+    }
+
+    @Test
+    void rejectsRequestWithoutToken() throws Exception {
+        mockMvc.perform(get("/orders"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
     void rejectsOrderWithoutItems() throws Exception {
-        mockMvc.perform(post("/api/orders")
+        mockMvc.perform(post("/orders")
+                        .with(user(UUID.randomUUID()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"customerId": "%s", "items": []}
-                                """.formatted(UUID.randomUUID())))
+                                {"items": []}
+                                """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.items").exists());
     }
 
     @Test
-    void returnsNotFoundForUnknownOrder() throws Exception {
-        mockMvc.perform(get("/api/orders/{id}", UUID.randomUUID()))
+    void hidesOrderOfAnotherCustomer() throws Exception {
+        String orderId = createOrder(UUID.randomUUID());
+
+        mockMvc.perform(get("/orders/{id}", orderId).with(user(UUID.randomUUID())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").exists());
     }
 
     @Test
     void cancelsOrderOnlyOnce() throws Exception {
-        String orderId = createOrder(UUID.randomUUID());
+        UUID customerId = UUID.randomUUID();
+        String orderId = createOrder(customerId);
 
-        mockMvc.perform(post("/api/orders/{id}/cancel", orderId))
+        mockMvc.perform(post("/orders/{id}/cancel", orderId).with(user(customerId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
-        mockMvc.perform(post("/api/orders/{id}/cancel", orderId))
+        mockMvc.perform(post("/orders/{id}/cancel", orderId).with(user(customerId)))
                 .andExpect(status().isConflict());
     }
 
     @Test
-    void listsOnlyOrdersOfGivenCustomer() throws Exception {
+    void cannotPayOrderBeforeReservation() throws Exception {
+        UUID customerId = UUID.randomUUID();
+        String orderId = createOrder(customerId);
+
+        mockMvc.perform(post("/orders/{id}/pay", orderId).with(user(customerId)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void listsOnlyOwnOrders() throws Exception {
         UUID customerId = UUID.randomUUID();
         createOrder(customerId);
         createOrder(customerId);
         createOrder(UUID.randomUUID());
 
-        mockMvc.perform(get("/api/orders").param("customerId", customerId.toString()))
+        mockMvc.perform(get("/orders").with(user(customerId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.page.totalElements").value(2));
     }
 
     private String createOrder(UUID customerId) throws Exception {
-        MockHttpServletResponse response = mockMvc.perform(post("/api/orders")
+        MockHttpServletResponse response = mockMvc.perform(post("/orders")
+                        .with(user(customerId))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {
-                                  "customerId": "%s",
-                                  "items": [{"productId": "%s", "quantity": 2}]
-                                }
-                                """.formatted(customerId, UUID.randomUUID())))
+                                {"items": [{"productId": "%s", "quantity": 2}]}
+                                """.formatted(UUID.randomUUID())))
                 .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse();
 
         String orderId = JsonPath.read(response.getContentAsString(), "$.id");
-        assertThat(response.getHeader("Location")).endsWith("/api/orders/" + orderId);
+        assertThat(response.getHeader("Location")).endsWith("/orders/" + orderId);
         return orderId;
+    }
+
+    private static RequestPostProcessor user(UUID customerId) {
+        return jwt().jwt(token -> token.subject(customerId.toString()).claim("role", "USER"));
     }
 }
