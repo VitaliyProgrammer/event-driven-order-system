@@ -100,7 +100,11 @@ docker compose up -d --build
 | Order Service API    | http://localhost:8081/swagger-ui.html |
 | Inventory Service API| http://localhost:8082/swagger-ui.html |
 | Notification API     | http://localhost:8083/swagger-ui.html |
-| Kafka UI             | http://localhost:8090                 |
+| Kafka UI (optional)  | http://localhost:8090                 |
+
+Kafka UI is not started by default to save memory. Add it with `docker compose --profile tools up -d`.
+Every container has a memory limit (about 2.8 GB for the whole stack); services size their heap
+from it with `-XX:MaxRAMPercentage=75`.
 
 An administrator account is created on startup: `admin@orderline.local` / `administrator`
 (override with `ADMINISTRATOR_EMAIL` / `ADMINISTRATOR_PASSWORD`, see `.env.example`).
@@ -108,7 +112,7 @@ An administrator account is created on startup: `admin@orderline.local` / `admin
 Run only the infrastructure and start services from the IDE:
 
 ```bash
-docker compose up -d postgres kafka kafka-ui
+docker compose up -d postgres kafka
 ```
 
 Tests (need Docker for Testcontainers):
