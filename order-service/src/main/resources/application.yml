@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:order_db}
+    username: ${DB_USERNAME:orderline}
+    password: ${DB_PASSWORD:orderline}
+  jpa:
+    # Keep DB access inside the service layer; lazy loading from a controller hides N+1 queries.
+    open-in-view: false
+    hibernate:
+      # Flyway owns the schema; Hibernate only checks that entities match it.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_batch_fetch_size: 50
+  data:
+    web:
+      pageable:
+        max-page-size: 100
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: order-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
+      concurrency: 3
+
+server:
+  port: 8081
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+orderline:
+  jwt:
+    secret: ${JWT_SECRET:local-development-secret-change-me-0123456789}
+    ttl: 2h
+  administrator:
+    email: ${ADMINISTRATOR_EMAIL:admin@orderline.local}
+    password: ${ADMINISTRATOR_PASSWORD:administrator}
+  outbox:
+    publish-interval: 1s
+  orders:
+    payment-timeout: ${PAYMENT_TIMEOUT:15m}
+    timeout-check-interval: 30s
