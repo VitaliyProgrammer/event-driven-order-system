@@ -1,5 +1,7 @@
 # orderline — event-driven order processing
 
+[![build](https://github.com/VitaliyProgrammer/event-driven-order-system/actions/workflows/build.yml/badge.svg)](https://github.com/VitaliyProgrammer/event-driven-order-system/actions/workflows/build.yml)
+
 Backend of a small online shop where **Apache Kafka is the backbone**: every change of an order travels between
 services as an event. Built to show production patterns around Kafka — not just "producer + consumer", but delivery
 guarantees, idempotency, ordering, failure handling and a distributed transaction via a saga.
